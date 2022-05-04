@@ -26,7 +26,6 @@ networks:
         aave_dai_token: "0xFf795577d9AC8bD7D90Ee22b6C1703490b6512FD"
         link_token: "0xa36085F69e2889c224210F603D836748e7dC0088"
         keyhash: "0x6c3699283bda56ad74f6b855546325b68d482e983852a7a82979cc4807b641f4"
-        fee: 0.1
         oracle: "0x2f90A6D021db21e1B2A077c5a37B3C7E75D15b7e"
         jobId: "29fa9aa13bf1468788b7cc4a500a45b8"
         eth_usd_price_feed: "0x9326BFA02ADD2366b30bacB125260Af641031331"
