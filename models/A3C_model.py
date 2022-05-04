@@ -1,14 +1,15 @@
 import os
 import random
 import gym
-import pylab
+import gym_anytrading
+from gym_anytrading.envs import TradingEnv, ForexEnv, StocksEnv, Actions, Positions 
+from gym_anytrading.datasets import FOREX_EURUSD_1H_ASK, STOCKS_GOOGL
+from stable_baselines.common.vec_env import DummyVecEnv
 import numpy as np
 from keras.models import Model, load_model
-from keras.layers import Input, Dense, Lambda, Add, Conv2D, Flatten
-from keras.optimizers import Adam, RMSprop
+from keras.layers import Input, Dense, Flatten
+from keras.optimizers import RMSprop
 from keras import backend as K
-import cv2
-# import needed for threading
 import tensorflow as tf
 from tf.compat.v1.keras.backend import set_session
 import threading
@@ -22,17 +23,12 @@ set_session(sess)
 K.set_session(sess)
 graph = tf.get_default_graph()
 
-def OurModel(input_shape, action_space, lr):
+def A3CModel(input_shape, action_space, lr):
     X_input = Input(input_shape)
-
-    #X = Conv2D(32, 8, strides=(4, 4),padding="valid", activation="elu", data_format="channels_first", input_shape=input_shape)(X_input)
-    #X = Conv2D(64, 4, strides=(2, 2),padding="valid", activation="elu", data_format="channels_first")(X)
-    #X = Conv2D(64, 3, strides=(1, 1),padding="valid", activation="elu", data_format="channels_first")(X)
     X = Flatten(input_shape=input_shape)(X_input)
-
     X = Dense(512, activation="elu", kernel_initializer='he_uniform')(X)
-    #X = Dense(256, activation="elu", kernel_initializer='he_uniform')(X)
-    #X = Dense(64, activation="elu", kernel_initializer='he_uniform')(X)
+    X = Dense(256, activation="elu", kernel_initializer='he_uniform')(X)
+    X = Dense(64, activation="elu", kernel_initializer='he_uniform')(X)
 
     action = Dense(action_space, activation="softmax", kernel_initializer='he_uniform')(X)
     value = Dense(1, kernel_initializer='he_uniform')(X)
@@ -46,14 +42,9 @@ def OurModel(input_shape, action_space, lr):
     return Actor, Critic
 
 class A3CAgent:
-    # Actor-Critic Main Optimization Algorithm
-    def __init__(self, env_name):
-        # Initialization
-        # Environment and PPO parameters
-        self.env_name = env_name       
-        self.env = gym.make(env_name)
+    def __init__(self):     
+        self.env = None
         self.action_size = self.env.action_space.n
-        self.EPISODES, self.episode, self.max_average = 10000, 0, -21.0 # specific for pong
         self.lock = Lock()
         self.lr = 0.000025
 
@@ -61,7 +52,6 @@ class A3CAgent:
         self.COLS = 80
         self.REM_STEP = 4
 
-        # Instantiate plot memory
         self.scores, self.episodes, self.average = [], [], []
 
         self.Save_Path = 'Models'
@@ -72,7 +62,7 @@ class A3CAgent:
         self.Model_name = os.path.join(self.Save_Path, self.path)
 
         # Create Actor-Critic network model
-        self.Actor, self.Critic = OurModel(input_shape=self.state_size, action_space = self.action_size, lr=self.lr)
+        self.Actor, self.Critic = A3CModel(input_shape=self.state_size, action_space = self.action_size, lr=self.lr)
 
         # make predict function to work while multithreading
         self.Actor._make_predict_function()
@@ -80,6 +70,21 @@ class A3CAgent:
 
         global graph
         graph = tf.get_default_graph()
+
+    def create_env(self):
+        df = gym_anytrading.datasets.STOCKS_GOOGL.copy()
+        window_size = 10
+        start_index = window_size
+        end_index = len(df)
+
+        env_maker = lambda: gym.make(
+            'stocks-v0',
+            df = df,
+            window_size = window_size,
+            frame_bound = (start_index, end_index)
+            )
+
+        env = DummyVecEnv([env_maker])
 
     def act(self, state):
         # Use the network to predict the next action to take, using the model
