@@ -8,8 +8,7 @@ from gym_anytrading.datasets import STOCKS_GOOGL
 class DefiEnv(gym.Env):
     def __init__(self):
         self.df = STOCKS_GOOGL
-        self.reward_range = (-Web3.toWei(0.1, "ether"),
-            Web3.toWei(0.1, "ether"))
+        self.reward_range = (-1., 1.)
         self.account = get_account()
         self.pool = get_pool()
         self.total = get_data()[0]
@@ -21,8 +20,8 @@ class DefiEnv(gym.Env):
             high=1,
             shape=(1, ),
             dtype=np.float16)
-        self.observation_space = spaces.Box(low=-1,
-            high=1,
+        self.observation_space = spaces.Box(low=0,
+            high=Web3.toWei(0.1, "ether")*2,
             shape=(3, ),
             dtype=np.float16)
 
