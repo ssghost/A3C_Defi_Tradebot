@@ -1,10 +1,5 @@
 import os
-import random
-import gym
-import gym_anytrading
-from gym_anytrading.envs import TradingEnv, ForexEnv, StocksEnv, Actions, Positions 
-from gym_anytrading.datasets import FOREX_EURUSD_1H_ASK, STOCKS_GOOGL
-from stable_baselines.common.vec_env import DummyVecEnv
+from gym_env.defi_env import DefiEnv
 import numpy as np
 from keras.models import Model, load_model
 from keras.layers import Input, Dense, Flatten
@@ -12,9 +7,7 @@ from keras.optimizers import RMSprop
 from keras import backend as K
 import tensorflow as tf
 from tf.compat.v1.keras.backend import set_session
-import threading
-from threading import Thread, Lock
-import time
+from threading import Lock
 
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
@@ -23,297 +16,115 @@ set_session(sess)
 K.set_session(sess)
 graph = tf.get_default_graph()
 
-def A3CModel(input_shape, action_space, lr):
-    X_input = Input(input_shape)
-    X = Flatten(input_shape=input_shape)(X_input)
-    X = Dense(512, activation="elu", kernel_initializer='he_uniform')(X)
-    X = Dense(256, activation="elu", kernel_initializer='he_uniform')(X)
-    X = Dense(64, activation="elu", kernel_initializer='he_uniform')(X)
-
-    action = Dense(action_space, activation="softmax", kernel_initializer='he_uniform')(X)
-    value = Dense(1, kernel_initializer='he_uniform')(X)
-
-    Actor = Model(inputs = X_input, outputs = action)
-    Actor.compile(loss='categorical_crossentropy', optimizer=RMSprop(lr=lr))
-
-    Critic = Model(inputs = X_input, outputs = value)
-    Critic.compile(loss='mse', optimizer=RMSprop(lr=lr))
-
-    return Actor, Critic
-
 class A3CAgent:
     def __init__(self):     
-        self.env = None
+        self.env = DefiEnv()
+        self.env_name = "defi_env"
         self.action_size = self.env.action_space.n
         self.lock = Lock()
         self.lr = 0.000025
-
-        self.ROWS = 80
-        self.COLS = 80
-        self.REM_STEP = 4
-
-        self.scores, self.episodes, self.average = [], [], []
-
+        self.episode = self.env.episode
         self.Save_Path = 'Models'
-        self.state_size = (self.REM_STEP, self.ROWS, self.COLS)
+        self.state_size = (3,)
+        self.rewards = self.env.graph_reward
         
         if not os.path.exists(self.Save_Path): os.makedirs(self.Save_Path)
         self.path = '{}_A3C_{}'.format(self.env_name, self.lr)
         self.Model_name = os.path.join(self.Save_Path, self.path)
 
-        # Create Actor-Critic network model
-        self.Actor, self.Critic = A3CModel(input_shape=self.state_size, action_space = self.action_size, lr=self.lr)
+        self.Actor, self.Critic = self.A3CModel(input_shape=self.state_size, action_space = self.action_size, lr=self.lr)
 
-        # make predict function to work while multithreading
         self.Actor._make_predict_function()
         self.Critic._make_predict_function()
 
         global graph
         graph = tf.get_default_graph()
 
-    def create_env(self):
-        df = gym_anytrading.datasets.STOCKS_GOOGL.copy()
-        window_size = 10
-        start_index = window_size
-        end_index = len(df)
+    def A3CModel(self, input_shape, action_space, lr):
+        X_input = Input(input_shape)
+        X = Flatten(input_shape=input_shape)(X_input)
+        X = Dense(512, activation="elu", kernel_initializer='he_uniform')(X)
+        X = Dense(256, activation="elu", kernel_initializer='he_uniform')(X)
+        X = Dense(64, activation="elu", kernel_initializer='he_uniform')(X)
+        X = Dense(16, activation="elu", kernel_initializer='he_uniform')(X) 
 
-        env_maker = lambda: gym.make(
-            'stocks-v0',
-            df = df,
-            window_size = window_size,
-            frame_bound = (start_index, end_index)
-            )
+        action = Dense(action_space, activation="softmax", kernel_initializer='he_uniform')(X)
+        value = Dense(1, kernel_initializer='he_uniform')(X)
 
-        env = DummyVecEnv([env_maker])
+        Actor = Model(inputs = X_input, outputs = action)
+        Actor.compile(loss='categorical_crossentropy', optimizer=RMSprop(lr=lr))
 
-    def act(self, state):
-        # Use the network to predict the next action to take, using the model
+        Critic = Model(inputs = X_input, outputs = value)
+        Critic.compile(loss='mse', optimizer=RMSprop(lr=lr))
+
+        return Actor, Critic
+
+    def reset(self):
+        return self.env.reset()
+
+    def act(self, state, action):
         prediction = self.Actor.predict(state)[0]
-        action = np.random.choice(self.action_size, p=prediction)
-        return action
+        if not action: 
+            action = np.random.choice(self.action_size, p=prediction)
+        self.env.step(action)
+        return self.env.step(action), action
 
-    def discount_rewards(self, reward):
-        # Compute the gamma-discounted rewards over an episode
-        gamma = 0.99    # discount rate
-        running_add = 0
-        discounted_r = np.zeros_like(reward)
-        for i in reversed(range(0,len(reward))):
-            if reward[i] != 0: # reset the sum, since this was a game boundary (pong specific!)
-                running_add = 0
-            running_add = running_add * gamma + reward[i]
-            discounted_r[i] = running_add
-
-        discounted_r -= np.mean(discounted_r) # normalizing the result
-        discounted_r /= np.std(discounted_r) # divide by standard deviation
-        return discounted_r
-
-    def replay(self, states, actions, rewards):
-        # reshape memory to appropriate shape for training
+    def replay(self, states, actions):
         states = np.vstack(states)
         actions = np.vstack(actions)
-
-        # Compute discounted rewards
-        discounted_r = self.discount_rewards(rewards)
-
-        # Get Critic network predictions
+        reward = self.rewards[-1]
         value = self.Critic.predict(states)[:, 0]
-        # Compute advantages
-        advantages = discounted_r - value
-        # training Actor and Critic networks
+        advantages = reward - value
+
         self.Actor.fit(states, actions, sample_weight=advantages, epochs=1, verbose=0)
-        self.Critic.fit(states, discounted_r, epochs=1, verbose=0)
+        self.Critic.fit(states, reward, epochs=1, verbose=0)
  
     def load(self, Actor_name, Critic_name):
         self.Actor = load_model(Actor_name, compile=False)
-        #self.Critic = load_model(Critic_name, compile=False)
+        self.Critic = load_model(Critic_name, compile=False)
 
     def save(self):
         self.Actor.save(self.Model_name + '_Actor.h5')
-        #self.Critic.save(self.Model_name + '_Critic.h5')
-
-    pylab.figure(figsize=(18, 9))
-    def PlotModel(self, score, episode):
-        self.scores.append(score)
-        self.episodes.append(episode)
-        self.average.append(sum(self.scores[-50:]) / len(self.scores[-50:]))
-        if str(episode)[-2:] == "00":# much faster than episode % 100
-            pylab.plot(self.episodes, self.scores, 'b')
-            pylab.plot(self.episodes, self.average, 'r')
-            pylab.ylabel('Score', fontsize=18)
-            pylab.xlabel('Steps', fontsize=18)
-            try:
-                pylab.savefig(self.path+".png")
-            except OSError:
-                pass
-
-        return self.average[-1]
-
-    def imshow(self, image, rem_step=0):
-        cv2.imshow(self.Model_name+str(rem_step), image[rem_step,...])
-        if cv2.waitKey(25) & 0xFF == ord("q"):
-            cv2.destroyAllWindows()
-            return
-
-    def GetImage(self, frame, image_memory):
-        if image_memory.shape == (1,*self.state_size):
-            image_memory = np.squeeze(image_memory)
-            
-        # croping frame to 80x80 size
-        frame_cropped = frame[35:195:2, ::2,:]
-        if frame_cropped.shape[0] != self.COLS or frame_cropped.shape[1] != self.ROWS:
-            # OpenCV resize function 
-            frame_cropped = cv2.resize(frame, (self.COLS, self.ROWS), interpolation=cv2.INTER_CUBIC)
-        
-        # converting to RGB (numpy way)
-        frame_rgb = 0.299*frame_cropped[:,:,0] + 0.587*frame_cropped[:,:,1] + 0.114*frame_cropped[:,:,2]
-
-        # convert everything to black and white (agent will train faster)
-        frame_rgb[frame_rgb < 100] = 0
-        frame_rgb[frame_rgb >= 100] = 255
-        # converting to RGB (OpenCV way)
-        #frame_rgb = cv2.cvtColor(frame_cropped, cv2.COLOR_RGB2GRAY)     
-
-        # dividing by 255 we expresses value to 0-1 representation
-        new_frame = np.array(frame_rgb).astype(np.float32) / 255.0
-
-        # push our data by 1 frame, similar as deq() function work
-        image_memory = np.roll(image_memory, 1, axis = 0)
-
-        # inserting new frame to free space
-        image_memory[0,:,:] = new_frame
-
-        # show image frame   
-        #self.imshow(image_memory,0)
-        #self.imshow(image_memory,1)
-        #self.imshow(image_memory,2)
-        #self.imshow(image_memory,3)
-        
-        return np.expand_dims(image_memory, axis=0)
-
-    def reset(self, env):
-        image_memory = np.zeros(self.state_size)
-        frame = env.reset()
-        for i in range(self.REM_STEP):
-            state = self.GetImage(frame, image_memory)
-        return state
-
-    def step(self, action, env, image_memory):
-        next_state, reward, done, info = env.step(action)
-        next_state = self.GetImage(next_state, image_memory)
-        return next_state, reward, done, info
+        self.Critic.save(self.Model_name + '_Critic.h5')
     
-    def run(self):
-        for e in range(self.EPISODES):
-            state = self.reset(self.env)
-            done, score, SAVING = False, 0, ''
-            # Instantiate or reset games memory
-            states, actions, rewards = [], [], []
-            while not done:
-                #self.env.render()
-                # Actor picks an action
-                action = self.act(state)
-                # Retrieve new state, reward, and whether the state is terminal
-                next_state, reward, done, _ = self.step(action, self.env, state)
-                # Memorize (state, action, reward) for training
-                states.append(state)
-                action_onehot = np.zeros([self.action_size])
-                action_onehot[action] = 1
-                actions.append(action_onehot)
-                rewards.append(reward)
-                # Update current state
-                state = next_state
-                score += reward
-                if done:
-                    average = self.PlotModel(score, e)
-                    # saving best models
-                    if average >= self.max_average:
-                        self.max_average = average
-                        self.save()
-                        SAVING = "SAVING"
-                    else:
-                        SAVING = ""
-                    print("episode: {}/{}, score: {}, average: {:.2f} {}".format(e, self.EPISODES, score, average, SAVING))
-
-                    self.replay(states, actions, rewards)
-         # close environemnt when finish training   
-        self.env.close()
-
-    def train(self, n_threads):
-        self.env.close()
-        # Instantiate one environment per thread
-        envs = [gym.make(self.env_name) for i in range(n_threads)]
-
-        # Create threads
-        threads = [threading.Thread(
-                target=self.train_threading,
-                daemon=True,
-                args=(self,
-                    envs[i],
-                    i)) for i in range(n_threads)]
-
-        for t in threads:
-            time.sleep(2)
-            t.start()
-
-    def train_threading(self, agent, env, thread):
+    def train(self):
         global graph
         with graph.as_default():
-            while self.episode < self.EPISODES:
-                # Reset episode
-                score, done, SAVING = 0, False, ''
-                state = self.reset(env)
-                # Instantiate or reset games memory
+            e = 1
+            while e < self.episode:
+                state = self.reset()
                 states, actions, rewards = [], [], []
                 while not done:
-                    action = agent.act(state)
-                    next_state, reward, done, _ = self.step(action, env, state)
-
+                    next_state, reward, done, _, action = self.act(state)
                     states.append(state)
                     action_onehot = np.zeros([self.action_size])
                     action_onehot[action] = 1
                     actions.append(action_onehot)
                     rewards.append(reward)
-                    
-                    score += reward
                     state = next_state
-
+                    self.replay(states, actions, rewards)
                 self.lock.acquire()
                 self.replay(states, actions, rewards)
                 self.lock.release()
-                        
-                # Update episode count
                 with self.lock:
-                    average = self.PlotModel(score, self.episode)
-                    # saving best models
+                    average = np.mean(self.rewards)
                     if average >= self.max_average:
                         self.max_average = average
                         self.save()
-                        SAVING = "SAVING"
-                    else:
-                        SAVING = ""
-                    print("episode: {}/{}, thread: {}, score: {}, average: {:.2f} {}".format(self.episode, self.EPISODES, thread, score, average, SAVING))
-                    if(self.episode < self.EPISODES):
-                        self.episode += 1
-            env.close()            
+                    if(e < self.episodes):
+                        e += 1
+            self.env.close()
+        print("Training is done.")         
 
     def test(self, Actor_name, Critic_name):
         self.load(Actor_name, Critic_name)
-        for e in range(100):
-            state = self.reset(self.env)
+        for e in range(self.episode):
+            state = self.reset()
             done = False
-            score = 0
             while not done:
                 action = np.argmax(self.Actor.predict(state))
-                state, reward, done, _ = self.step(action, self.env, state)
-                score += reward
-                if done:
-                    print("episode: {}/{}, score: {}".format(e, self.EPISODES, score))
-                    break
+                state, reward, done, _, _ = self.act(state, action)
+                assert self.rewards[-1] == reward
+        print(f"Average Reward: {np.mean(self.rewards)}.")
         self.env.close()
 
-if __name__ == "__main__":
-    env_name = 'Pong-v0'
-    agent = A3CAgent(env_name)
-    #agent.run() # use as A2C
-    agent.train(n_threads=5) # use as A3C
-    #agent.test('Pong-v0_A3C_2.5e-05_Actor.h5', 'Pong-v0_A3C_2.5e-05_Critic.h5')

@@ -3,11 +3,13 @@ import gym
 import random
 from gym import spaces
 from scripts.operations import *
-from gym_anytrading.datasets import STOCKS_GOOGL
+from pandas import read_csv
+
+DF_PATH = ''
 
 class DefiEnv(gym.Env):
     def __init__(self):
-        self.df = STOCKS_GOOGL
+        self.df = read_csv(DF_PATH)
         self.reward_range = (-1., 1.)
         self.account = get_account()
         self.pool = get_pool()
