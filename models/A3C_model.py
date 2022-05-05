@@ -106,6 +106,7 @@ class A3CAgent:
                     self.replay(states, actions, rewards)
                 self.lock.acquire()
                 self.replay(states, actions, rewards)
+                self.rewards = rewards
                 self.lock.release()
                 with self.lock:
                     average = np.mean(self.rewards)
