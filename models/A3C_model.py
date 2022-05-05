@@ -101,6 +101,7 @@ class A3CAgent:
                     action_onehot[action] = 1
                     actions.append(action_onehot)
                     rewards.append(reward)
+                    self.rewards.append(reward)
                     state = next_state
                     self.replay(states, actions, rewards)
                 self.lock.acquire()
