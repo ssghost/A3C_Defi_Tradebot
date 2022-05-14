@@ -23,6 +23,7 @@ class A3CAgent:
         self.action_size = self.env.action_space.n
         self.lock = Lock()
         self.threads = 5
+        self.env_array = [self.env]*self.threads
         self.lr = 0.000025
         self.episode = self.env.episode
         self.Save_Path = 'Models'
@@ -88,8 +89,8 @@ class A3CAgent:
         self.Actor.save(self.Model_name + '_Actor.h5')
         self.Critic.save(self.Model_name + '_Critic.h5')
     
-    def train(self, env):
-        self.env = env
+    def train(self, env_i):
+        self.env = self.env_array[env_i]
         global graph
         with graph.as_default():
             e = 1
@@ -123,10 +124,10 @@ class A3CAgent:
     def train_with_threads(self):
         threads = self.threads
         self.env.close()
-        envs = [self.env for i in range(threads)]
+        envs = self.env_array
         Threads = [Thread(target=self.train,
                           daemon=True,
-                          args=(self,envs[i])) for i in range(threads)]
+                          args=(self, i)) for i in range(threads)]
         for t, i in enumerate(Threads):
             time.sleep(2)
             t.start()
