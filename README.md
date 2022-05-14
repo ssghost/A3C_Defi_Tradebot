@@ -4,3 +4,5 @@ An experimental trading bot in the Defi market(Aave parachain) using A3c algorit
 ### Usage
 1. `$brownie compile && brownie run` for deploying all the blockchain interfaces.
 2. `$python run.py` for both training and testing processes of NN model.
+
+05.14 update: Added a multi-threads training method to A3CAgent class.
