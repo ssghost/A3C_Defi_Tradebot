@@ -7,7 +7,7 @@ from keras.optimizers import RMSprop
 from keras import backend as K
 import tensorflow as tf
 from tf.compat.v1.keras.backend import set_session
-from threading import Lock
+from threading import Lock, Thread
 
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
@@ -22,6 +22,7 @@ class A3CAgent:
         self.env_name = "defi_env"
         self.action_size = self.env.action_space.n
         self.lock = Lock()
+        self.threads = 5
         self.lr = 0.000025
         self.episode = self.env.episode
         self.Save_Path = 'Models'
@@ -87,7 +88,7 @@ class A3CAgent:
         self.Actor.save(self.Model_name + '_Actor.h5')
         self.Critic.save(self.Model_name + '_Critic.h5')
     
-    def train(self):
+    def train(self, env):
         global graph
         with graph.as_default():
             e = 1
@@ -116,7 +117,21 @@ class A3CAgent:
                     if(e < self.episodes):
                         e += 1
             self.env.close()
-        print("Training is done.")         
+        print("Training is done.") 
+        
+    def train_with_threads(self):
+        threads = self.threads
+        self.env.close()
+        envs = [self.env for i in range(threads)]
+        Threads = [threading.Thread(
+                   target=self.train,
+                   daemon=True,
+                   args=(self,envs[i])) for i in range(threads)]
+        for t, i in enumerate(Threads):
+            time.sleep(2)
+            t.start()
+            print(f"Started training thread {i+1}.")
+        
 
     def test(self, Actor_name, Critic_name):
         self.load(Actor_name, Critic_name)
