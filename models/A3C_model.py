@@ -124,10 +124,9 @@ class A3CAgent:
         threads = self.threads
         self.env.close()
         envs = [self.env for i in range(threads)]
-        Threads = [threading.Thread(
-                   target=self.train,
-                   daemon=True,
-                   args=(self,envs[i])) for i in range(threads)]
+        Threads = [Thread(target=self.train,
+                          daemon=True,
+                          args=(self,envs[i])) for i in range(threads)]
         for t, i in enumerate(Threads):
             time.sleep(2)
             t.start()
