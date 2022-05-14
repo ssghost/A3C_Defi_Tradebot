@@ -89,6 +89,7 @@ class A3CAgent:
         self.Critic.save(self.Model_name + '_Critic.h5')
     
     def train(self, env):
+        self.env = env
         global graph
         with graph.as_default():
             e = 1
