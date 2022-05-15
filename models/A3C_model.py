@@ -8,6 +8,7 @@ from keras import backend as K
 import tensorflow as tf
 from tf.compat.v1.keras.backend import set_session
 from threading import Lock, Thread
+import time
 
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
