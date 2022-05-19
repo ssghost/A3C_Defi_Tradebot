@@ -19,12 +19,12 @@ graph = tf.get_default_graph()
 
 class A3CAgent:
     def __init__(self):     
-        self.env = DefiEnv()
         self.env_name = "defi_env"
         self.action_size = self.env.action_space.n
         self.lock = Lock()
         self.threads = 5
-        self.env_array = [self.env]*self.threads
+        self.env_train = [DefiEnv()]*self.threads
+        self.env_test = DefiEnv()
         self.lr = 0.000025
         self.episode = self.env.episode
         self.Save_Path = 'Models'
@@ -62,15 +62,15 @@ class A3CAgent:
 
         return Actor, Critic
 
-    def reset(self):
-        return self.env.reset()
+    def reset(self, env):
+        return env.reset()
 
-    def act(self, state, action):
+    def act(self, state, action, env):
         prediction = self.Actor.predict(state)[0]
         if not action: 
             action = np.random.choice(self.action_size, p=prediction)
-        self.env.step(action)
-        return self.env.step(action), action
+        env.step(action)
+        return env.step(action), action
 
     def replay(self, states, actions):
         states = np.vstack(states)
@@ -91,15 +91,15 @@ class A3CAgent:
         self.Critic.save(self.Model_name + '_Critic.h5')
     
     def train(self, env_i):
-        self.env = self.env_array[env_i]
+        cur_env = self.env_train[env_i]
         global graph
         with graph.as_default():
             e = 1
             while e < self.episode:
-                state = self.reset()
+                state = self.reset(cur_env)
                 states, actions, rewards = [], [], []
                 while not done:
-                    next_state, reward, done, _, action = self.act(state)
+                    next_state, reward, done, _, action = self.act(state, cur_env)
                     states.append(state)
                     action_onehot = np.zeros([self.action_size])
                     action_onehot[action] = 1
@@ -119,13 +119,13 @@ class A3CAgent:
                         self.save()
                     if(e < self.episodes):
                         e += 1
-            self.env.close()
+            cur_env.close()
         print("Training is done.") 
         
     def train_with_threads(self):
         threads = self.threads
-        self.env.close()
-        envs = self.env_array
+        env.close() for env in self.env_train
+        envs = self.env_train
         Threads = [Thread(target=self.train,
                           daemon=True,
                           args=(self, i)) for i in range(threads)]
@@ -138,12 +138,12 @@ class A3CAgent:
     def test(self, Actor_name, Critic_name):
         self.load(Actor_name, Critic_name)
         for e in range(self.episode):
-            state = self.reset()
+            state = self.reset(self.env_test)
             done = False
             while not done:
                 action = np.argmax(self.Actor.predict(state))
-                state, reward, done, _, _ = self.act(state, action)
+                state, reward, done, _, _ = self.act(state, action, self.env_test)
                 assert self.rewards[-1] == reward
         print(f"Average Reward: {np.mean(self.rewards)}.")
-        self.env.close()
+        self.env_test.close()
 
