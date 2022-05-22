@@ -129,7 +129,7 @@ class A3CAgent:
         Threads = [Thread(target=self.train,
                           daemon=True,
                           args=(self, i)) for i in range(threads)]
-        for t, i in enumerate(Threads):
+        for i, t in enumerate(Threads):
             time.sleep(2)
             t.start()
             print(f"Started training thread {i+1}.")
