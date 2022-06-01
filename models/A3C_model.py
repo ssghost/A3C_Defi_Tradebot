@@ -27,12 +27,12 @@ class A3CAgent:
         self.env_test = DefiEnv()
         self.lr = 0.000025
         self.episode = self.env.episode
-        self.Save_Path = 'Models'
+        self.Save_Path = '.'
         self.state_size = (3,)
         self.rewards = self.env.graph_reward
         
         if not os.path.exists(self.Save_Path): os.makedirs(self.Save_Path)
-        self.path = '{}_A3C_{}'.format(self.env_name, self.lr)
+        self.path = '{}_A3C_{}'.format(self.env_name, str(self.lr).replace('.',''))
         self.Model_name = os.path.join(self.Save_Path, self.path)
 
         self.Actor, self.Critic = self.A3CModel(input_shape=self.state_size, action_space = self.action_size, lr=self.lr)
@@ -120,12 +120,12 @@ class A3CAgent:
                     if(e < self.episodes):
                         e += 1
             cur_env.close()
-        print("Training is done.") 
+        print(f"Training thread {env_i} is done.") 
         
     def train_with_threads(self):
         threads = self.threads
-        env.close() for env in self.env_train
-        envs = self.env_train
+        for env in self.env_train:
+            env.close()
         Threads = [Thread(target=self.train,
                           daemon=True,
                           args=(self, i)) for i in range(threads)]
