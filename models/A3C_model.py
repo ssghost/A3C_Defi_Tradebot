@@ -27,6 +27,7 @@ class A3CAgent:
         self.env_test = DefiEnv()
         self.lr = 0.000025
         self.episode = self.env.episode
+        self.episode_test = 0
         self.Save_Path = '.'
         self.state_size = (3,)
         self.rewards = self.env.graph_reward
@@ -95,7 +96,7 @@ class A3CAgent:
         global graph
         with graph.as_default():
             e = 1
-            while e < self.episode:
+            while e <= self.episode:
                 state = self.reset(cur_env)
                 states, actions, rewards = [], [], []
                 while not done:
@@ -111,6 +112,7 @@ class A3CAgent:
                 self.lock.acquire()
                 self.replay(states, actions, rewards)
                 self.rewards = rewards
+                self.episode = cur_env.episode
                 self.lock.release()
                 with self.lock:
                     average = np.mean(self.rewards)
@@ -119,6 +121,7 @@ class A3CAgent:
                         self.save()
                     if(e < self.episodes):
                         e += 1
+            self.episode_test += cur_env.episode
             cur_env.close()
         print(f"Training thread {env_i} is done.") 
         
@@ -134,10 +137,9 @@ class A3CAgent:
             t.start()
             print(f"Started training thread {i+1}.")
         
-
     def test(self, Actor_name, Critic_name):
         self.load(Actor_name, Critic_name)
-        for e in range(self.episode):
+        for e in range(self.episode_test):
             state = self.reset(self.env_test)
             done = False
             while not done:
