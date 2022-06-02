@@ -139,6 +139,7 @@ class A3CAgent:
         
     def test(self, Actor_name, Critic_name):
         self.load(Actor_name, Critic_name)
+        assert self.episode_test != 0
         if self.episode_test > 1000:
             self.episode_test = int(self.episode_test/5)
         for e in range(self.episode_test):
